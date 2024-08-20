@@ -4,7 +4,7 @@ from langchain_chroma import Chroma
 
 from models.embedding import embedding_function
 
-class ChromaService():
+class ChromaManager():
     def __init__(self):
         self.spotify_manager = SpotifyManager()
         self.username = self.spotify_manager.username

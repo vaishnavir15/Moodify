@@ -32,3 +32,7 @@ logger = configure_logging()
 logger.debug("Debug message")
 logger.info("Info message")
 logger.error("Error message")
+
+
+def get_logger():
+    return logger

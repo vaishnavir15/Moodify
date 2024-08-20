@@ -51,3 +51,37 @@ def create_project_structure():
             f.write(content)
 
     structure, files
+
+
+
+def convert_strings_to_lists(metadata):
+    """
+    Convert JSON strings in the metadata back to lists after retrieving them from ChromaDB.
+    """
+    new_metadata = {}
+    for key, value in metadata.items():
+        try:
+            # Try to convert the string back to a list
+            new_metadata[key] = json.loads(value) if isinstance(value, str) else value
+        except json.JSONDecodeError:
+            # If it's not a valid JSON string, keep the value as is
+            new_metadata[key] = value
+    return new_metadata
+
+
+def convert_lists_to_strings(metadata):
+    """
+    Convert lists in the metadata to JSON strings before storing them in ChromaDB.
+    Convert None values to empty strings.
+    """
+    new_metadata = {}
+    for key, value in metadata.items():
+        if value is None:
+            new_metadata[key] = ""  # Convert None to empty string
+        elif isinstance(value, list):
+            new_metadata[key] = json.dumps(value)
+        elif isinstance(value, dict):
+            new_metadata[key] = convert_lists_to_strings(value)  # Recursively handle nested dictionaries
+        else:
+            new_metadata[key] = value
+    return new_metadata
