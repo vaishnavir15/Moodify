@@ -8,12 +8,20 @@ from dotenv import load_dotenv
 from spotipy.exceptions import SpotifyException
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from FlagEmbedding import BGEM3FlagModel
-from uuid import uuid4
 import nest_asyncio
 import uvicorn
-import asyncio
 import lyricsgenius
+import json
+import nest_asyncio
+import uvicorn
+import subprocess
+
+
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,10 +45,18 @@ sp_oauth = SpotifyOAuth(
 # Initialize Genius API
 genius = lyricsgenius.Genius(os.getenv("GENIUS_API_TOKEN"))
 
-# Initialize the BGEM3FlagModel for generating real embeddings
-model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
+
 
 def get_spotify_client():
+    """
+    Retrieves a Spotify client instance using OAuth authentication. If no valid token is cached, raises an HTTP 307 exception to redirect the user for authentication.
+    
+    Returns:
+        sp (Spotify): Spotify client instance with an authorized access token.
+    
+    Raises:
+        HTTPException: Redirects to Spotify login if no token is found.
+    """
     token_info = sp_oauth.get_cached_token()
 
     if not token_info:
@@ -58,10 +74,17 @@ model_name = "BAAI/bge-m3"
 embedding_function = HuggingFaceBgeEmbeddings(model_name=model_name)
 
 def get_text_collection(user_id: str):
-    # Create a unique collection name for textual data based on user ID
+    """
+    Initializes a Chroma vector store for textual data using the provided user ID to create a unique collection name.
+    
+    Args:
+        user_id (str): The unique identifier for the user.
+    
+    Returns:
+        vector_store (Chroma): Chroma vector store instance for storing and querying text data.
+    """
     collection_name = f"{user_id}_text_collection"
     
-    # Initialize Chroma vector store for text data with the embedding function
     vector_store = Chroma(
         collection_name=collection_name,
         embedding_function=embedding_function,
@@ -70,23 +93,37 @@ def get_text_collection(user_id: str):
     
     return vector_store
 
-  
-
-
 def get_audio_collection(user_id: str):
-    # Create a unique collection name for audio data based on user ID
+    """
+    Initializes a Chroma vector store for audio data using the provided user ID to create a unique collection name.
+    
+    Args:
+        user_id (str): The unique identifier for the user.
+    
+    Returns:
+        vector_store (Chroma): Chroma vector store instance for storing and querying audio data.
+    """
     collection_name = f"{user_id}_audio_collection"
     
-    # Initialize Chroma vector store for audio data (no embeddings needed)
     vector_store = Chroma(
         collection_name=collection_name,
-         embedding_function=embedding_function,
+        embedding_function=embedding_function,
         persist_directory="./chroma_langchain_db"
     )
     
     return vector_store
 
 def get_audio_features_and_analysis(sp, track_id):
+    """
+    Retrieves audio features and analysis for a given Spotify track ID.
+    
+    Args:
+        sp (Spotify): Spotify client instance.
+        track_id (str): Spotify track ID.
+    
+    Returns:
+        dict: Dictionary containing audio features and audio analysis data.
+    """
     audio_features = sp.audio_features([track_id])[0]  # Fetching audio features
     audio_analysis = sp.audio_analysis(track_id)       # Fetching audio analysis
     return {
@@ -103,9 +140,21 @@ def filter_none_metadata(metadata):
         return {k: filter_none_metadata(v) for k, v in metadata.items() if v is not None}
     return metadata
 
-
 @app.get("/lyrics")
 async def lyrics(artist: str, title: str):
+    """
+    Fetches song lyrics for the given artist and title using the Genius API.
+    
+    Args:
+        artist (str): Name of the artist.
+        title (str): Title of the song.
+    
+    Returns:
+        dict: Dictionary containing song lyrics.
+    
+    Raises:
+        HTTPException: If the lyrics are not found or another error occurs.
+    """
     try:
         song = genius.search_song(title, artist)
         if song:
@@ -114,37 +163,17 @@ async def lyrics(artist: str, title: str):
             raise HTTPException(status_code=404, detail="Lyrics not found")
     except HTTPException as e:
         raise e
-
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to the Spotify integration with FastAPI"}
-
-@app.get("/login")
-async def login():
-    auth_url = sp_oauth.get_authorize_url()
-    logger.info(f"Redirecting to Spotify's authorization URL: {auth_url}")
-    return RedirectResponse(auth_url)
-
-@app.get("/callback")
-async def callback(request: Request):
-    code = request.query_params.get('code')
-    if not code:
-        raise HTTPException(status_code=400, detail="Missing authorization code")
-
-    token_info = sp_oauth.get_access_token(code)
-
-    if token_info:
-        logger.info("Access token obtained successfully!")
-        return RedirectResponse(url="/")
-    else:
-        raise HTTPException(status_code=401, detail="Could not authenticate with Spotify")
-
-import json
+    
 
 def convert_lists_to_strings(metadata):
     """
-    Convert lists in the metadata to JSON strings before storing them in ChromaDB.
-    Convert None values to empty strings.
+    Converts lists in the metadata to JSON strings before storing them in ChromaDB. Also converts None values to empty strings.
+    
+    Args:
+        metadata (dict): Metadata dictionary where lists need to be converted to strings.
+    
+    Returns:
+        dict: Modified metadata dictionary with lists converted to strings.
     """
     new_metadata = {}
     for key, value in metadata.items():
@@ -159,9 +188,17 @@ def convert_lists_to_strings(metadata):
     return new_metadata
 
 
+
+    
 def convert_strings_to_lists(metadata):
     """
-    Convert JSON strings in the metadata back to lists after retrieving them from ChromaDB.
+    Converts JSON strings in the metadata back to lists after retrieving them from ChromaDB.
+    
+    Args:
+        metadata (dict): Metadata dictionary where strings need to be converted back to lists.
+    
+    Returns:
+        dict: Modified metadata dictionary with strings converted back to lists.
     """
     new_metadata = {}
     for key, value in metadata.items():
@@ -172,6 +209,55 @@ def convert_strings_to_lists(metadata):
             # If it's not a valid JSON string, keep the value as is
             new_metadata[key] = value
     return new_metadata
+
+@app.get("/")
+async def read_root():
+    """
+    Root endpoint that returns a welcome message.
+    
+    Returns:
+        dict: A welcome message.
+    """
+    return {"message": "Welcome to the Spotify integration with FastAPI"}
+
+@app.get("/login")
+async def login():
+    """
+    Redirects the user to Spotify's authorization page for OAuth login.
+    
+    Returns:
+        RedirectResponse: Redirects to the Spotify authorization URL.
+    """
+    auth_url = sp_oauth.get_authorize_url()
+    logger.info(f"Redirecting to Spotify's authorization URL: {auth_url}")
+    return RedirectResponse(auth_url)
+
+@app.get("/callback")
+async def callback(request: Request):
+    """
+    Handles the callback from Spotify after user authentication. Exchanges the authorization code for an access token.
+    
+    Args:
+        request (Request): The incoming HTTP request containing the authorization code.
+    
+    Returns:
+        RedirectResponse: Redirects to the home page after successful authentication.
+    
+    Raises:
+        HTTPException: If the authorization code is missing or authentication fails.
+    """
+    code = request.query_params.get('code')
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+
+    token_info = sp_oauth.get_access_token(code)
+
+    if token_info:
+        logger.info("Access token obtained successfully!")
+        return RedirectResponse(url="/")
+    else:
+        raise HTTPException(status_code=401, detail="Could not authenticate with Spotify")
+
 
 
 @app.get("/search")
@@ -232,21 +318,32 @@ async def search(query: str, k: int = Query(default=5, description="Number of re
             return JSONResponse(status_code=500, content={"message": "An error occurred during the search process."})
 
 
-
-
-
 @app.get("/store_embeddings")
 async def store_embeddings(limit: int = Query(default=50, description="Number of liked songs to fetch")):
+    """
+    Fetches a specified number of liked songs from the current user's Spotify account, processes their data (including lyrics and audio features),
+    and stores the processed data into vector stores for text and audio data using ChromaDB.
+    
+    Args:
+        limit (int): Number of liked songs to fetch. Defaults to 50.
+    
+    Returns:
+        dict: A message indicating the number of songs successfully embedded.
+    
+    Raises:
+        HTTPException: Redirects to Spotify login if authentication is needed or if lyrics are not found.
+        SpotifyException: Handles Spotify-specific exceptions, including rate limits.
+    """
     try:
         sp = get_spotify_client()
                 
-                # Get the current user's ID as early as possible
+        # Get the current user's ID as early as possible
         user_id = sp.current_user()['id']  # Get the current user's ID
 
-                # Get the text collection
+        # Get the text collection
         text_store = get_text_collection(user_id)
                         
-                # Get the current number of songs in the collection
+        # Get the current number of songs in the collection
         curr_number_of_songs = text_store._collection.count()
         
         # Determine the offset for the Spotify API request
@@ -290,8 +387,6 @@ async def store_embeddings(limit: int = Query(default=50, description="Number of
                 song = genius.search_song(track_info["name"], artist_name)
             except HTTPException as e:
                 e.__traceback__()
-
-
 
             # if song:
             #     song_lyrics = song.lyrics or ""
@@ -343,11 +438,7 @@ async def store_embeddings(limit: int = Query(default=50, description="Number of
         else:
             return JSONResponse(status_code=500, content={"message": "An error occurred while embedding songs."})
 
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 @app.post("/create_playlist")
@@ -403,6 +494,20 @@ async def create_playlist(query: str, k: int = Query(default=5, description="Num
 
 @app.get("/get_recommendations")
 async def get_recommendations(query: str, k: int = Query(default=5, description="Number of search results to fetch")):
+    """
+    Retrieves song recommendations based on a search query. The recommendations are filtered to exclude tracks already liked by the user.
+
+    Args:
+        query (str): The search query used to find relevant tracks or artists.
+        k (int): The number of recommendations to fetch. Defaults to 5.
+
+    Returns:
+        dict: A dictionary containing the recommended tracks.
+
+    Raises:
+        HTTPException: Redirects to Spotify login if authentication is needed.
+        SpotifyException: Handles Spotify-specific exceptions, including rate limits.
+    """
     try:
         sp = get_spotify_client()
         user_id = sp.current_user()['id']  # Get the current user's ID
@@ -442,7 +547,6 @@ async def get_recommendations(query: str, k: int = Query(default=5, description=
         final_recommendations = filtered_recommendations[:k]
         return {"recommendations": final_recommendations}
         
- 
     except HTTPException as e:
         if e.status_code == 307:
             return RedirectResponse(url="/login")
@@ -454,10 +558,7 @@ async def get_recommendations(query: str, k: int = Query(default=5, description=
             return JSONResponse(status_code=500, content={"message": "An error occurred while fetching recommendations."})
 
 
-import nest_asyncio
-import uvicorn
-import subprocess
-from backend import FastAPI
+
 if __name__ == "__main__":
 # Apply the nest_asyncio patch to allow running FastAPI in a Jupyter notebook
     nest_asyncio.apply()
@@ -471,4 +572,4 @@ if __name__ == "__main__":
     run_fastapi()
 
     # Start Streamlit app in a subprocess
-    subprocess.run(["streamlit", "run", "run.py"])
+    subprocess.run(["streamlit", "run", "app.py"])

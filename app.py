@@ -1,109 +1,91 @@
 import streamlit as st
 import requests
-from langchain.memory import ConversationBufferMemory
-from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 
-st.set_page_config(page_title="LangChain: Chat with search", page_icon="🦜")
-st.title("🦜 LangChain: Chat with search")
+"""
+This Streamlit app serves as a frontend for interacting with a FastAPI backend.
+It allows users to perform various music-related tasks, such as storing music embeddings, 
+creating playlists, and getting song recommendations by making HTTP requests to the FastAPI endpoints.
 
-# Custom class to interact with FastAPI endpoints
-class FastAPILLM:
-    def __init__(self, endpoint_url):
-        self.endpoint_url = endpoint_url
+Features:
+1. Store Embeddings: Fetches and stores song embeddings from the user's Spotify account.
+2. Create Playlist: Creates a playlist based on a search query.
+3. Get Recommendations: Fetches song recommendations based on a search query.
 
-    def call_api(self, endpoint, params=None, data=None):
-        try:
-            url = f"{self.endpoint_url}/{endpoint}"
-            if data:
-                response = requests.post(url, json=data)
-            else:
-                response = requests.get(url, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            st.error(f"API call failed: {str(e)}")
-            return {"error": str(e)}
+Dependencies:
+- Streamlit: For building the frontend interface.
+- Requests: For sending HTTP requests to the FastAPI backend.
 
-    def get_lyrics(self, artist, title):
-        return self.call_api("lyrics", params={"artist": artist, "title": title})
+Make sure to adjust the `BASE_URL` to match the actual URL of your FastAPI backend.
+"""
 
-    def store_embeddings(self, limit):
-        return self.call_api("store_embeddings", params={"limit": limit})
+# Base URL of your FastAPI backend
+BASE_URL = "http://127.0.0.1:8235"
 
-    def create_playlist(self, query, k):
-        return self.call_api("create_playlist", params={"query": query, "k": k})
+# Streamlit app layout
+st.title("Music App")
 
-    def get_recommendations(self, query, k):
-        return self.call_api("get_recommendations", params={"query": query, "k": k})
-
-# FastAPI URL input
-fastapi_url = st.sidebar.text_input("FastAPI URL", value="http://localhost:8235")
-
-if not fastapi_url:
-    st.error("Please provide a valid FastAPI URL.")
-    st.stop()
-
-llm = FastAPILLM(fastapi_url)
-
-# Initialize chat history and memory
-msgs = StreamlitChatMessageHistory()
-memory = ConversationBufferMemory(
-    chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output"
+# Navigation options
+option = st.sidebar.selectbox(
+    "Select Option", ("Get Lyrics", "Store Embeddings", "Create Playlist", "Get Recommendations")
 )
 
-if len(msgs.messages) == 0 or st.sidebar.button("Reset chat history"):
-    msgs.clear()
-    msgs.add_ai_message("How can I help you?")
-    st.session_state.steps = {}
-
-avatars = {"human": "user", "ai": "assistant"}
-for idx, msg in enumerate(msgs.messages):
-    with st.chat_message(avatars[msg.type]):
-        st.write(msg.content)
-
-if prompt := st.chat_input(placeholder="Enter your query here..."):
-    st.chat_message("user").write(prompt)
-    st.session_state.steps = {}
-
-    # Example: Get user input for lyrics
-    artist = st.text_input("Artist name:", value="Adele")
-    title = st.text_input("Song title:", value="Hello")
+# Store Embeddings
+if option == "Store Embeddings":
+    """
+    Section for storing music embeddings.
     
-    if st.button("Get Lyrics"):
-        response = llm.get_lyrics(artist=artist, title=title)
-        if "error" not in response:
-            st.chat_message("assistant").write(response.get("lyrics", "No lyrics found."))
-        else:
-            st.chat_message("assistant").write(f"Error: {response['error']}")
-
-    # Example: Store embeddings with user-defined limit
-    limit = st.number_input("Number of liked songs to fetch:", min_value=1, max_value=100, value=50)
-    
+    Allows the user to select the number of songs to fetch from their Spotify account using a slider.
+    Upon clicking the "Store Embeddings" button, a GET request is sent to the `/store_embeddings` endpoint 
+    of the FastAPI backend. The response from the backend is displayed as a success or error message.
+    """
+    st.header("Store Your Music Embeddings")
+    limit = st.slider("Number of songs to fetch:", min_value=1, max_value=100, value=50)
     if st.button("Store Embeddings"):
-        embeddings_response = llm.store_embeddings(limit=limit)
-        if "error" not in embeddings_response:
-            st.write(f"Stored embeddings response: {embeddings_response}")
+        response = requests.get(f"{BASE_URL}/store_embeddings", params={"limit": limit})
+        if response.status_code == 200:
+            st.success(response.json().get("message"))
         else:
-            st.write(f"Error: {embeddings_response['error']}")
+            st.error("Failed to store embeddings.")
 
-    # Example: Create a playlist with user-defined query and number of results
-    playlist_query = st.text_input("Playlist query:", value="Happy songs")
-    k = st.number_input("Number of songs to fetch:", min_value=1, max_value=50, value=5)
+# Create Playlist
+elif option == "Create Playlist":
+    """
+    Section for creating a playlist.
+    
+    Allows the user to input a search query and specify the number of songs to include in the playlist.
+    Upon clicking the "Create Playlist" button, a POST request is sent to the `/create_playlist` endpoint 
+    of the FastAPI backend. The response from the backend is displayed as a success or error message.
+    """
+    st.header("Create a Playlist")
+    query = st.text_input("Search Query for Playlist")
+    k = st.slider("Number of songs to fetch:", min_value=1, max_value=20, value=5)
     
     if st.button("Create Playlist"):
-        playlist_response = llm.create_playlist(query=playlist_query, k=k)
-        if "error" not in playlist_response:
-            st.write(f"Playlist creation response: {playlist_response}")
+        response = requests.post(f"{BASE_URL}/create_playlist", params={"query": query, "k": k})
+        if response.status_code == 200:
+            st.success(response.json().get("message"))
         else:
-            st.write(f"Error: {playlist_response['error']}")
+            st.error("Failed to create playlist.")
 
-    # Example: Get song recommendations with user-defined query and number of results
-    rec_query = st.text_input("Recommendation query:", value="Chill music")
-    k_rec = st.number_input("Number of recommendations:", min_value=1, max_value=50, value=5)
+# Get Recommendations
+elif option == "Get Recommendations":
+    """
+    Section for getting song recommendations.
+    
+    Allows the user to input a search query and specify the number of recommendations to fetch.
+    Upon clicking the "Get Recommendations" button, a GET request is sent to the `/get_recommendations` endpoint 
+    of the FastAPI backend. The recommended tracks are displayed in the Streamlit app.
+    """
+    st.header("Get Song Recommendations")
+    query = st.text_input("Search Query for Recommendations")
+    k = st.slider("Number of recommendations:", min_value=1, max_value=20, value=5)
     
     if st.button("Get Recommendations"):
-        recommendations_response = llm.get_recommendations(query=rec_query, k=k_rec)
-        if "error" not in recommendations_response:
-            st.write(f"Recommendations: {recommendations_response}")
+        response = requests.get(f"{BASE_URL}/get_recommendations", params={"query": query, "k": k})
+        if response.status_code == 200:
+            recommendations = response.json().get("recommendations", [])
+            st.write("Recommendations:")
+            for track in recommendations:
+                st.write(track.get("name"), "by", ", ".join([artist["name"] for artist in track.get("artists", [])]))
         else:
-            st.write(f"Error: {recommendations_response['error']}")
+            st.error("Failed to fetch recommendations.")
