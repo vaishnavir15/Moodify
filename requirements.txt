@@ -23,3 +23,4 @@ peft
 langchain-chroma>=0.1.2
 streamlit
 python-dotenv
+pre-commit
