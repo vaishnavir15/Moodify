@@ -1,6 +1,6 @@
 import os
 import logging
-from fastapi import FastAPI, HTTPException, Request, Query
+from backend import FastAPI, HTTPException, Request, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from spotipy.exceptions import SpotifyException
 from app.managers.spotify_manager import SpotifyManager

@@ -1,7 +1,7 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import os
-from fastapi import HTTPException
+from backend import HTTPException
 
 
 class SpotifyManager():

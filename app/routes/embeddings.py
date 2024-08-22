@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException, Request
+from backend import APIRouter, Query, HTTPException, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from managers.spotify_manager import SpotifyManager
 from embedding_manager import EmbeddingManager

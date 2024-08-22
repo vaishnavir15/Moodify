@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException
+from backend import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from app.managers.spotify_manager import SpotifyManager
 import logging

@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # Base URL of your FastAPI backend
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://127.0.0.1:8235"
 
 # Streamlit app layout
 st.title("Music App")
